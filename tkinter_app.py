@@ -140,7 +140,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = EmailMonitorApp(root)
     root.mainloop()
-# Mail:
-# 82WSPym0sdPvSqkgQsTn
-# testpy221@mail.ru
-# imap.mail.ru
