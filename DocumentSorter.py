@@ -1,41 +1,58 @@
+'''
+Запускается на Python 3.10
+'''
+import pymorphy2
 import re
 import json
 
-def normalize_for_search(text):
-    """
-    Убирает все пробелы из текста, чтобы при поиске не учитывать их.
-    """
-    return re.sub(r'\s+', '', text)
+morph = pymorphy2.MorphAnalyzer()
 
-def classify_document_manual_no_spaces(raw_text, categories_keywords):
+def remove_spaces_between_letters(text):
     """
-    Функция вычисляет суммарный балл для каждой категории,
-    используя поиск ключевых слов с игнорированием пробелов.
-    Для этого исходный текст и ключевые слова предварительно нормализуются
-    (удаляются все пробелы и переводятся в нижний регистр).
-    Если название категории явно встречается в тексте, добавляется бонус.
+    Убирает пробелы между всеми заглавными буквами, например, 'П Р И К А З' -> 'ПРИКАЗ'.
     """
+    while True:
+        new_text = re.sub(r'(?<=\b[А-Яа-я])\s(?=[А-Яа-я])', '', text)
+        if new_text == text:
+            break
+        text = new_text
+    return text
+
+def normalize_text_and_lemmatize(text):
+    """
+    Нормализует текст (удаляет пробелы между буквами, приводит к нижнему регистру)
+    и выполняет лемматизацию слов.
+    """
+    text = remove_spaces_between_letters(text)  # Убираем пробелы между буквами
+    text = re.sub(r'\s+', ' ', text)  # Убираем лишние пробелы
+    words = re.findall(r'\w+', text.lower())  # Разделяем текст на слова
+    lemmatized_words = [morph.parse(word)[0].normal_form for word in words]  # Лемматизируем слова
+    return lemmatized_words
+
+def classify_document_with_lemmatization(raw_text, categories_keywords):
+    """
+    Функция лемматизирует текст документа и ключевые слова категорий,
+    чтобы учитывать разные формы слов при поиске.
+    """
+    lemmatized_text = normalize_text_and_lemmatize(raw_text)
+    print(f"Лемматизированный текст:\n{lemmatized_text}")
     category_scores = {}
     detailed_explanation = {}
-
-    # Нормализуем весь текст, удаляя все пробелы, и переводим в нижний регистр
-    normalized_text = normalize_for_search(raw_text).lower()
 
     for category, keywords in categories_keywords.items():
         score = 0
         explanation_lines = []
         for keyword, weight in keywords.items():
-            # Нормализуем ключевое слово (удаляются все пробелы и перевод в нижний регистр)
-            normalized_keyword = normalize_for_search(keyword).lower()
-            # Используем метод count, так как последовательное совпадение без пробелов
-            count = normalized_text.count(normalized_keyword)
+            # Лемматизируем ключевое слово
+            lemmatized_keyword = morph.parse(keyword)[0].normal_form
+            count = lemmatized_text.count(lemmatized_keyword)
             keyword_score = count * weight
             score += keyword_score
             explanation_lines.append(
-                f"Ключевое слово '{keyword}' (без пробелов: '{normalized_keyword}') найдено {count} раз, вес {weight} дает вклад {keyword_score:.2f}."
+                f"Ключевое слово '{keyword}' (лемма: '{lemmatized_keyword}') найдено {count} раз, вес {weight} дает вклад {keyword_score:.2f}."
             )
-        # Если название категории содержится в нормализованном тексте, добавляем бонус
-        if normalize_for_search(category).lower() in normalized_text:
+        # Бонус за упоминание категории
+        if morph.parse(category.split()[0])[0].normal_form in lemmatized_text:
             score += 0.5
             explanation_lines.append(
                 f"Найдено прямое упоминание категории '{category}', добавляем бонус 0.50."
@@ -48,11 +65,11 @@ def classify_document_manual_no_spaces(raw_text, categories_keywords):
     most_likely_category = max(probabilities, key=probabilities.get)
     return most_likely_category, probabilities, detailed_explanation
 
-# Пример: загрузка словаря категорий с ключевыми словами из JSON-файла
+# Пример: загрузка JSON-файла с ключевыми словами категорий
 with open('categories_keywords.json', 'r', encoding='utf-8') as f:
     categories_keywords = json.load(f)
 
-# Пример заглушки для документа (замените этот текст на ваш документ)
+# Текст документа
 raw_text = """
 МИНОБРНАУКИ РОССИИ
 Федеральное государственное бюджетное образовательное учреждение
@@ -62,46 +79,28 @@ raw_text = """
   П Р И К А З  
    №   
   г. Комсомольск-на-Амуре  
-  О создании
+О создании
 
-(название СКБ/СПБ/СНО) 
 С целью развития проектной деятельности в университете, развития научных инициатив и повышения качества подготовки студентов
 ПРИКАЗЫВАЮ:
 1  Создать на факультете СКБ/СПБ/СНО    
-(название факультета)
-    (  )
-(название СКБ/СПБ/СНО)
-2  Декану факультета организовать подготовку к утверждению:
--  положение о;
-(название СКБ/СПБ/СНО)
--  план работ на 20/уч. год.
-(название СКБ/СПБ/СНО)
-Срок исполнения не позднее.
-
-Ректор университета  Э.А. Дмитриев
-Проект приказа вносит декан      
-И.О. Фамилия
-СОГЛАСОВАНО  
-Проректор по НР  А.В. Космынин
-Начальник УНИД
-Начальник ПУ  А.В. Ахметова
-А.В. Ременников
 """
 
-most_likely_category, probabilities, detailed_explanation = classify_document_manual_no_spaces(raw_text, categories_keywords)
+# Запуск классификации
+most_likely_category, probabilities, detailed_explanation = classify_document_with_lemmatization(raw_text, categories_keywords)
 
-# Вывод краткого резюме в консоль
-sorted_probs = sorted([(cat, prob) for cat, prob in probabilities.items() if prob > 0], key=lambda x: x[1], reverse=True)
+# Вывод краткого результата
+sorted_probs = sorted(probabilities.items(), key=lambda x: x[1], reverse=True)
 print(f"Наиболее вероятная категория: {most_likely_category}\n")
-print("Вероятности для всех категорий (отсортировано):")
+print("Вероятности для всех категорий:")
 for cat, prob in sorted_probs:
     print(f"- {cat}: {prob * 100:.2f}%")
 
-# Сохранение подробного пояснения в файл для детального анализа
+# Сохранение подробностей в файл
 with open("detailed_explanation.txt", "w", encoding="utf-8") as f:
     for cat, details in detailed_explanation.items():
         f.write(f"\nКатегория: {cat}\n")
         for line in details:
             f.write(line + "\n")
 
-print("\nПодробное пояснение сохранено в файле 'detailed_explanation.txt'.")
+print("\nПодробное пояснение сохранено в файл 'detailed_explanation.txt'.")
