@@ -8,9 +8,40 @@ from PyPDF2 import PdfReader
 from typing import List, Dict  # Добавьте этот импорт
 from psycopg2.extras import RealDictCursor  # Добавьте этот импорт
 import mammoth
+import pytesseract
+from PIL import Image
+from pdf2image import convert_from_path
+import uuid
+import io  # Добавлено для работы с изображениями в .docx
+from langdetect import detect
+import cv2
+import numpy as np
+
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 ATTACHMENTS_DIR = "attachments"
 if not os.path.exists(ATTACHMENTS_DIR):
     os.makedirs(ATTACHMENTS_DIR)
+
+def detect_language(text):
+    try:
+        return detect(text)
+    except:
+        return "unknown"
+
+def preprocess_image(image_path):
+    # Загружаем изображение
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    
+    # Увеличиваем контрастность
+    image = cv2.equalizeHist(image)
+    
+    # Применяем бинаризацию (чёрно-белое изображение)
+    _, image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Сохраняем обработанное изображение во временный файл
+    processed_path = "processed_image.png"
+    cv2.imwrite(processed_path, image)
+    return processed_path
 
 class EmailMonitorApp:
     def __init__(self, root):
@@ -105,22 +136,41 @@ class EmailMonitorApp:
             self.emails = fetcher.fetch_emails(processed_uids)
             
             for email in self.emails:
+                # Сохраняем письмо в базу данных и получаем email_id
+                email_id = self.db.insert_email(email)
+                if not email_id:
+                    continue
+                
                 # Сохраняем вложения
                 attachments = email["attachments"]
                 saved_paths = []
                 for attachment in attachments:
-                    file_path = os.path.join(ATTACHMENTS_DIR, attachment["filename"])
+                    original_filename = attachment["filename"]
+                    file_path = os.path.join(ATTACHMENTS_DIR, original_filename)
+                    
+                    # Проверяем, существует ли файл, и создаём уникальное имя
+                    if os.path.exists(file_path):
+                        unique_id = str(uuid.uuid4())[:8]
+                        file_name, file_extension = os.path.splitext(original_filename)
+                        file_path = os.path.join(ATTACHMENTS_DIR, f"{file_name}_{unique_id}{file_extension}")
+                    
+                    # Сохраняем файл с уникальным именем
                     with open(file_path, "wb") as f:
                         f.write(attachment["content"])
+                    
+                    # Добавляем данные вложения в базу данных
+                    attachment_data = {
+                        "filename": os.path.basename(file_path),
+                        "path": file_path,
+                        "content": attachment["content"],
+                        "text": self.extract_text_from_attachment(file_path, lang='rus+eng')
+                    }
+                    self.db.insert_attachment(email_id, attachment_data)
                     saved_paths.append(file_path)
                 
                 # Обновляем путь к вложениям в email
                 email["attachments"] = saved_paths
                 
-                # Сохраняем письмо в базу данных
-                self.db.insert_email(email)
-            
-            self.update_treeview()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to connect: {str(e)}")
         finally:
@@ -209,15 +259,25 @@ class EmailMonitorApp:
                 # Сохраняем вложения
                 saved_paths = []
                 for attachment in email["attachments"]:
-                    file_path = os.path.join(ATTACHMENTS_DIR, attachment["filename"])
+                    original_filename = attachment["filename"]
+                    file_path = os.path.join(ATTACHMENTS_DIR, original_filename)
+                    
+                    # Проверяем, существует ли файл, и создаём уникальное имя
+                    if os.path.exists(file_path):
+                        unique_id = str(uuid.uuid4())[:8]
+                        file_name, file_extension = os.path.splitext(original_filename)
+                        file_path = os.path.join(ATTACHMENTS_DIR, f"{file_name}_{unique_id}{file_extension}")
+                    
+                    # Сохраняем файл с уникальным именем
                     with open(file_path, "wb") as f:
                         f.write(attachment["content"])
                     
+                    # Добавляем данные вложения в базу данных
                     attachment_data = {
-                        "filename": attachment["filename"],
+                        "filename": os.path.basename(file_path),
                         "path": file_path,
                         "content": attachment["content"],
-                        "text": self.extract_text_from_attachment(file_path)
+                        "text": self.extract_text_from_attachment(file_path, lang='rus')
                     }
                     self.db.insert_attachment(email_id, attachment_data)
                     saved_paths.append(file_path)
@@ -234,24 +294,46 @@ class EmailMonitorApp:
             # Запускаем таймер для следующей проверки
             self.root.after(10000, self.auto_fetch_emails)  # Проверяем каждые 60 секунд
 
-    def extract_text_from_attachment(self, file_path: str) -> str:
+    def extract_text_from_attachment(self, file_path: str, lang: str = 'rus') -> str:
         try:
-            if file_path.endswith(".pdf"):               
-                reader = PdfReader(file_path)
-                return " ".join(page.extract_text() for page in reader.pages)
-            elif file_path.endswith(".docx"): 
+            text = ""
+            if file_path.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff")):
+                # Предварительная обработка изображения
+                processed_path = preprocess_image(file_path)
+                image = Image.open(processed_path)
+                text = pytesseract.image_to_string(image, lang=lang)
+            
+            elif file_path.endswith(".pdf"):
+                # Извлечение текста из PDF
+                images = convert_from_path(file_path)
+                for image in images:
+                    text += " " + pytesseract.image_to_string(image, lang=lang)
+            
+            elif file_path.endswith(".docx"):
+                # Извлечение текста из .docx
                 with open(file_path, "rb") as docx_file:
                     result = mammoth.extract_raw_text(docx_file)
-                    return result.value  # Возвращает текст из .docx
-            else:
-                return ""
+                    text = result.value.strip()
+                
+                # Если текст не извлечён, пробуем извлечь текст из изображений
+                if not text.strip():
+                    from docx import Document
+                    doc = Document(file_path)
+                    for rel in doc.part.rels.values():
+                        if "image" in rel.target_ref:
+                            image_path = rel.target_part.blob
+                            image = Image.open(io.BytesIO(image_path))
+                            text += " " + pytesseract.image_to_string(image, lang=lang)
+            
+            # Постобработка текста
+            return text.strip()
         except Exception as e:
             print(f"Ошибка при извлечении текста из вложения {file_path}: {e}")
             return ""
     
     def get_all_emails(self) -> List[Dict]:
         cursor = self.conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT id, sender, recipient, subject, date, body FROM emails")
+        cursor.execute("SELECT id, sender, recipient, subject, date, body FROM emails ORDER BY date")
         emails = cursor.fetchall()
         cursor.close()
         return emails
