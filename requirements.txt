@@ -1,0 +1,12 @@
+tkinter
+psycopg2
+PyPDF2
+pytesseract
+Pillow
+pdf2image
+mammoth
+pymorphy2
+langdetect
+opencv-python
+numpy
+langchain-ollama

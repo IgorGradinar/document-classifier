@@ -15,6 +15,7 @@ This project is a document classification system that fetches emails, processes 
 - Python 3.10 or higher
 - PostgreSQL database
 - Tesseract OCR (for text extraction from images)
+- Ollama (for neural network model integration)
 
 ### Dependencies
 Install the required Python packages using `pip`:
@@ -53,6 +54,11 @@ pip install -r requirements.txt
    ```
 
 3. **IMAP Server**: Configure the IMAP server, username, and password in the GUI (`tkinter_app.py`).
+
+4. **Ollama Setup**: Install Ollama and pull the required model:
+   ```bash
+   ollama pull gemma2:27b
+   ```
 
 ## Usage
 
