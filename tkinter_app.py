@@ -70,17 +70,17 @@ class EmailMonitorApp:
         ttk.Label(connection_frame, text="IMAP Server:").grid(row=0, column=0)
         self.imap_server = ttk.Entry(connection_frame)
         self.imap_server.grid(row=0, column=1, padx=5)
-        self.imap_server.insert(0, "imap.mail.ru")  # Значение по умолчанию для IMAP Server
+        self.imap_server.insert(0, "IMAP Server")  # Значение по умолчанию для IMAP Server
         
         ttk.Label(connection_frame, text="Username:").grid(row=1, column=0)
         self.username = ttk.Entry(connection_frame)
         self.username.grid(row=1, column=1, padx=5)
-        self.username.insert(0, "testpy221@mail.ru")  # Значение по умолчанию для Username
+        self.username.insert(0, "Email")  # Значение по умолчанию для Username
         
         ttk.Label(connection_frame, text="Password:").grid(row=2, column=0)
         self.password = ttk.Entry(connection_frame, show="*")
         self.password.grid(row=2, column=1, padx=5)
-        self.password.insert(0, "82WSPym0sdPvSqkgQsTn")  # Значение по умолчанию для Password
+        self.password.insert(0, "Password")  # Значение по умолчанию для Password
         
         self.connect_button = ttk.Button(
             connection_frame, 
