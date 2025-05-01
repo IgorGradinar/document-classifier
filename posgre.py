@@ -4,13 +4,13 @@ from typing import List, Dict
 
 
 class EmailDatabaseManager:
-    def __init__(self, db_name: str = "emails", user: str = "postgres", password: str = "password",
+    def __init__(self, db_name: str = "Email", user: str = "postgres", password: str = "postgres",
                  host: str = "localhost", port: int = 5432):
 
         self.conn = psycopg2.connect(
-            dbname="emails",
+            dbname="Email",
             user="postgres",
-            password="password",
+            password="postgres",
             host="localhost",
             port=5432
         )

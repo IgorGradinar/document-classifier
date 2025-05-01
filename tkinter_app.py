@@ -53,7 +53,7 @@ class EmailMonitorApp:
         self.db = EmailDatabaseManager(
             db_name="Email",
             user="postgres",
-            password="password",
+            password="postgres",
             host="localhost",
             port=5432
         )
