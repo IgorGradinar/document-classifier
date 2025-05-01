@@ -15,7 +15,9 @@ import uuid
 import io  # Добавлено для работы с изображениями в .docx
 from langdetect import detect
 import cv2
-import numpy as np
+from docx import Document
+import NeuroDocumentSorter
+
 
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 ATTACHMENTS_DIR = "attachments"
@@ -51,7 +53,7 @@ class EmailMonitorApp:
         self.db = EmailDatabaseManager(
             db_name="Email",
             user="postgres",
-            password="postgres",
+            password="password",
             host="localhost",
             port=5432
         )
@@ -70,17 +72,17 @@ class EmailMonitorApp:
         ttk.Label(connection_frame, text="IMAP Server:").grid(row=0, column=0)
         self.imap_server = ttk.Entry(connection_frame)
         self.imap_server.grid(row=0, column=1, padx=5)
-        self.imap_server.insert(0, "IMAP Server")  # Значение по умолчанию для IMAP Server
+        self.imap_server.insert(0, "imap.mail.ru")  # Значение по умолчанию для IMAP Server
         
         ttk.Label(connection_frame, text="Username:").grid(row=1, column=0)
         self.username = ttk.Entry(connection_frame)
         self.username.grid(row=1, column=1, padx=5)
-        self.username.insert(0, "Email")  # Значение по умолчанию для Username
+        self.username.insert(0, "testpy221@mail.ru")  # Значение по умолчанию для Username
         
         ttk.Label(connection_frame, text="Password:").grid(row=2, column=0)
         self.password = ttk.Entry(connection_frame, show="*")
         self.password.grid(row=2, column=1, padx=5)
-        self.password.insert(0, "Password")  # Значение по умолчанию для Password
+        self.password.insert(0, "82WSPym0sdPvSqkgQsTn")  # Значение по умолчанию для Password
         
         self.connect_button = ttk.Button(
             connection_frame, 
@@ -157,13 +159,16 @@ class EmailMonitorApp:
                     # Сохраняем файл с уникальным именем
                     with open(file_path, "wb") as f:
                         f.write(attachment["content"])
-                    
+
+                    document_text = self.extract_text_from_attachment(file_path, lang='rus+eng')
+
                     # Добавляем данные вложения в базу данных
                     attachment_data = {
                         "filename": os.path.basename(file_path),
                         "path": file_path,
                         "content": attachment["content"],
-                        "text": self.extract_text_from_attachment(file_path, lang='rus+eng')
+                        "text": document_text,
+                        "category": NeuroDocumentSorter.sort_document(document_text)
                     }
                     self.db.insert_attachment(email_id, attachment_data)
                     saved_paths.append(file_path)
@@ -271,13 +276,15 @@ class EmailMonitorApp:
                     # Сохраняем файл с уникальным именем
                     with open(file_path, "wb") as f:
                         f.write(attachment["content"])
-                    
+
+                    document_text = self.extract_text_from_attachment(file_path, lang='rus')
                     # Добавляем данные вложения в базу данных
                     attachment_data = {
                         "filename": os.path.basename(file_path),
                         "path": file_path,
                         "content": attachment["content"],
-                        "text": self.extract_text_from_attachment(file_path, lang='rus')
+                        "text": document_text,
+                        "category": NeuroDocumentSorter.sort_document(document_text)
                     }
                     self.db.insert_attachment(email_id, attachment_data)
                     saved_paths.append(file_path)
@@ -292,7 +299,7 @@ class EmailMonitorApp:
             print(f"Ошибка при автоматической проверке писем: {e}")
         finally:
             # Запускаем таймер для следующей проверки
-            self.root.after(10000, self.auto_fetch_emails)  # Проверяем каждые 60 секунд
+            self.root.after(10000, self.auto_fetch_emails)
 
     def extract_text_from_attachment(self, file_path: str, lang: str = 'rus') -> str:
         try:
@@ -317,7 +324,7 @@ class EmailMonitorApp:
                 
                 # Если текст не извлечён, пробуем извлечь текст из изображений
                 if not text.strip():
-                    from docx import Document
+
                     doc = Document(file_path)
                     for rel in doc.part.rels.values():
                         if "image" in rel.target_ref:
@@ -377,7 +384,8 @@ class EmailMonitorApp:
                 filename TEXT,
                 path TEXT,
                 content BYTEA,
-                text TEXT
+                text TEXT,
+                mark TEXT
             )
         """)
         self.conn.commit()

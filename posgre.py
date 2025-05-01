@@ -2,17 +2,20 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import List, Dict
 
+
 class EmailDatabaseManager:
-    def __init__(self, db_name: str = "emails", user: str = "postgres", password: str = "password", host: str = "localhost", port: int = 5432):
+    def __init__(self, db_name: str = "emails", user: str = "postgres", password: str = "password",
+                 host: str = "localhost", port: int = 5432):
+
         self.conn = psycopg2.connect(
-            dbname=db_name,
-            user=user,
-            password=password,
-            host=host,
-            port=port
+            dbname="emails",
+            user="postgres",
+            password="password",
+            host="localhost",
+            port=5432
         )
         self.create_table()
-    
+
     def create_table(self):
         cursor = self.conn.cursor()
         # Создаём таблицу emails
@@ -24,7 +27,8 @@ class EmailDatabaseManager:
                 recipient TEXT,
                 subject TEXT,
                 date TEXT,
-                body TEXT
+                body TEXT,
+                attachments TEXT
             )
         """)
         # Создаём таблицу attachments
@@ -35,7 +39,8 @@ class EmailDatabaseManager:
                 filename TEXT,
                 path TEXT,
                 content BYTEA,
-                text TEXT
+                text TEXT,
+                category INTEGER
             )
         """)
         self.conn.commit()
@@ -46,11 +51,9 @@ class EmailDatabaseManager:
         cursor.execute("SELECT uid FROM emails")
         uids = [row[0] for row in cursor.fetchall()]
         cursor.close()
-        
-        return uids
-    
 
-    
+        return uids
+
     def insert_email(self, email_data: Dict) -> int:
         cursor = self.conn.cursor()
         cursor.execute("""
@@ -70,18 +73,19 @@ class EmailDatabaseManager:
         self.conn.commit()
         cursor.close()
         return email_id[0] if email_id else None
-    
+
     def insert_attachment(self, email_id: int, attachment_data: Dict):
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT INTO attachments (email_id, filename, path, content, text)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO attachments (email_id, filename, path, content, text, category)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """, (
             email_id,
             attachment_data["filename"],
             attachment_data["path"],
             attachment_data["content"],
-            attachment_data["text"]
+            attachment_data["text"],
+            attachment_data["category"]
         ))
         self.conn.commit()
         cursor.close()
@@ -96,7 +100,7 @@ class EmailDatabaseManager:
             email["to"] = email.pop("recipient")  # Переименовываем ключ 'recipient' в 'to'
             email["attachments"] = email["attachments"].split(", ") if email["attachments"] else []
         return emails
-    
+
     def get_attachments_by_email_id(self, email_id: int) -> List[Dict]:
         cursor = self.conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("SELECT filename, path, text FROM attachments WHERE email_id = %s", (email_id,))

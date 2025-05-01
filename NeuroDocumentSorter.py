@@ -30,7 +30,7 @@ def run_gemma2_27b_by_ollama():
         print("Error:", e.stderr)  # Вывод ошибки
 
 def sort_document(document_text):
-    llm = OllamaLLM(model="gemma2:27b")
+    llm = OllamaLLM(model="gemma2:9b")
 
     categories = '''
             1.	Приказы, распоряжения ректора, проректоров.
@@ -73,7 +73,7 @@ def sort_document(document_text):
                f"ЧИСЛО, НЕ ПИШИ БУКВЫ, НЕ ПОЯСНЯЙ ОТВЕТ, ОТ ТЕБЯ ТРЕБУЕТСЯ НАПИСАТЬ ТОЛЬКО ЧИСЛО НОМЕР КАТЕГОРИИ! К КАКОЙ "
                f"КАТЕГОРИИ ИЗ ПРЕДОСТАВЛЕННЫХ КАТЕГОРИЙ ТЫ ОТНЕСЕШЬ ТЕКСТ ДОКУМЕНТА.")
 
-    result = llm.invoke(masedge)
+    result = int(llm.invoke(masedge))
 
     print(f"Номер категории введеного текста: '{result}'")
 

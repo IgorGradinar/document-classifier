@@ -4,3 +4,5 @@ detailed_explanation.txt
 .idea/misc.xml
 .idea/modules.xml
 .idea/vcs.xml
+/attachments
+/__pycache__
