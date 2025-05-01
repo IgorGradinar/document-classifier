@@ -10,7 +10,7 @@ class EmailDatabaseManager:
         self.conn = psycopg2.connect(
             dbname="emails",
             user="postgres",
-            password="password",
+            password="postgres",
             host="localhost",
             port=5432
         )
