@@ -30,7 +30,7 @@ def run_gemma2_27b_by_ollama():
         print("Error:", e.stderr)  # Вывод ошибки
 
 def sort_document(document_text):
-    llm = OllamaLLM(model="gemma2:9b")
+    llm = OllamaLLM(model="gemma2:27b")
 
     categories = '''
             1.	Приказы, распоряжения ректора, проректоров.
