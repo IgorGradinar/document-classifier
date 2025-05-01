@@ -53,7 +53,7 @@ class EmailMonitorApp:
         self.db = EmailDatabaseManager(
             db_name="Email",
             user="postgres",
-            password="postgres",
+            password="password",
             host="localhost",
             port=5432
         )
@@ -312,18 +312,18 @@ class EmailMonitorApp:
             
             elif file_path.endswith(".pdf"):
                 # Извлечение текста из PDF
-                images = convert_from_path(file_path)
-                for image in images:
-                    text += " " + pytesseract.image_to_string(image, lang=lang)
-            
+                # Конвертируем PDF в изображения
+                images = convert_from_path(file_path, poppler_path=r"C:\poppler\poppler-24.08.0\Library\bin")
+
+                # Обрабатываем каждую страницу через OCR
+                ocr_text = "\n".join([pytesseract.image_to_string(img, lang=lang) for img in images])
+
+
             elif file_path.endswith(".docx"):
                 # Извлечение текста из .docx
                 with open(file_path, "rb") as docx_file:
                     result = mammoth.extract_raw_text(docx_file)
                     text = result.value.strip()
-                
-                # Если текст не извлечён, пробуем извлечь текст из изображений
-                if not text.strip():
 
                     doc = Document(file_path)
                     for rel in doc.part.rels.values():
