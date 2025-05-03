@@ -8,11 +8,11 @@ class EmailDatabaseManager:
                  host: str = "localhost", port: int = 5432):
 
         self.conn = psycopg2.connect(
-            dbname="emails",
-            user="postgres",
-            password="password",
-            host="localhost",
-            port=5432
+            dbname=db_name,
+            user=user,
+            password=password,
+            host=host,
+            port=port
         )
         self.create_table()
 

@@ -1,4 +1,4 @@
-tkinter
+
 psycopg2
 PyPDF2
 pytesseract
