@@ -96,8 +96,8 @@ class EmailDatabaseManager:
         emails = cursor.fetchall()
         cursor.close()
         for email in emails:
-            email["from"] = email.pop("sender")  # Переименовываем ключ 'sender' в 'from'
-            email["to"] = email.pop("recipient")  # Переименовываем ключ 'recipient' в 'to'
+            email["from"] = email.pop("sender") 
+            email["to"] = email.pop("recipient")
             email["attachments"] = email["attachments"].split(", ") if email["attachments"] else []
         return emails
 

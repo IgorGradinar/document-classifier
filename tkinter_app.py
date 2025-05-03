@@ -4,7 +4,6 @@ from mail import EmailFetcherService
 from posgre import EmailDatabaseManager
 from tkinter import messagebox
 import os
-from PyPDF2 import PdfReader
 from typing import List, Dict  # Добавьте этот импорт
 from psycopg2.extras import RealDictCursor  # Добавьте этот импорт
 import mammoth
@@ -17,7 +16,10 @@ from langdetect import detect
 import cv2
 from docx import Document
 import NeuroDocumentSorter
+import rarfile
+import zipfile
 
+rarfile.UNRAR_TOOL = r"C:\Users\zbujh\OneDrive\Рабочий стол\UnRAR.exe"
 
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 ATTACHMENTS_DIR = "attachments"
@@ -44,6 +46,21 @@ def preprocess_image(image_path):
     processed_path = "processed_image.png"
     cv2.imwrite(processed_path, image)
     return processed_path
+
+def extract_files_from_archive(archive_path: str, extract_to: str) -> List[str]:
+    extracted_files = []
+    try:
+        if archive_path.endswith(".rar"):
+            with rarfile.RarFile(archive_path, 'r') as rar_ref:
+                rar_ref.extractall(extract_to)
+                extracted_files = rar_ref.namelist()
+        elif archive_path.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_to)
+                extracted_files = zip_ref.namelist()
+    except Exception as e:
+        print(f"Ошибка при распаковке архива {archive_path}: {e}")
+    return [os.path.join(extract_to, file) for file in extracted_files]
 
 class EmailMonitorApp:
     def __init__(self, root):
@@ -149,32 +166,78 @@ class EmailMonitorApp:
                 for attachment in attachments:
                     original_filename = attachment["filename"]
                     file_path = os.path.join(ATTACHMENTS_DIR, original_filename)
-                    
+
                     # Проверяем, существует ли файл, и создаём уникальное имя
                     if os.path.exists(file_path):
                         unique_id = str(uuid.uuid4())[:8]
                         file_name, file_extension = os.path.splitext(original_filename)
                         file_path = os.path.join(ATTACHMENTS_DIR, f"{file_name}_{unique_id}{file_extension}")
-                    
+
                     # Сохраняем файл с уникальным именем
                     with open(file_path, "wb") as f:
                         f.write(attachment["content"])
 
-                    document_text = self.extract_text_from_attachment(file_path, lang='rus+eng')
-
-                    # Добавляем данные вложения в базу данных
-                    attachment_data = {
-                        "filename": os.path.basename(file_path),
-                        "path": file_path,
-                        "content": attachment["content"],
-                        "text": document_text,
-                        "category": NeuroDocumentSorter.sort_document(document_text)
-                    }
-                    self.db.insert_attachment(email_id, attachment_data)
+                    # Добавляем путь к файлу в saved_paths
                     saved_paths.append(file_path)
+
+                    # Если файл является архивом, обрабатываем его
+                    if file_path.endswith((".rar", ".zip")):
+                        archive_data = {
+                            "filename": os.path.basename(file_path),
+                            "path": file_path,
+                            "content": attachment["content"],
+                            "text": None,
+                            "category": None
+                        }
+                        self.db.insert_attachment(email_id, archive_data)
+
+                        # Получаем ID архива
+                        cursor = self.db.conn.cursor()
+                        cursor.execute("SELECT id FROM attachments WHERE path = %s", (file_path,))
+                        archive_id = cursor.fetchone()[0]
+                        print(archive_id)
+                        cursor.close()
+
+                        # Извлекаем файлы из архива
+                        extracted_files = extract_files_from_archive(file_path, ATTACHMENTS_DIR)
+                        for extracted_file in extracted_files:
+                            # Читаем бинарное содержимое файла
+                            with open(extracted_file, "rb") as f:
+                                file_content = f.read()
+
+                            # Извлекаем текст из файла
+                            document_text = self.extract_text_from_attachment(extracted_file, lang='rus+eng')
+
+                            # Добавляем данные извлечённых файлов в таблицу attachments
+                            attachment_data = {
+                                "filename": os.path.basename(extracted_file),
+                                "path": extracted_file,
+                                "content": file_content,
+                                "text": document_text,
+                                "category": NeuroDocumentSorter.sort_document(document_text),
+                                "owner": archive_id
+                            }
+                            self.db.insert_attachment(email_id, attachment_data)
+
+                            # Добавляем путь извлечённого файла в saved_paths
+                            saved_paths.append(extracted_file)
+                    else:
+                        # Обработка обычных вложений
+                        document_text = self.extract_text_from_attachment(file_path, lang='rus+eng')
+
+                        attachment_data = {
+                            "filename": os.path.basename(file_path),
+                            "path": file_path,
+                            "content": attachment["content"],
+                            "text": document_text,
+                            "category": NeuroDocumentSorter.sort_document(document_text)
+                        }
+                        self.db.insert_attachment(email_id, attachment_data)
                 
                 # Обновляем путь к вложениям в email
                 email["attachments"] = saved_paths
+                # Обновляем поле attachments в таблице emails
+                self.db.update_email_attachments(email_id, saved_paths)
                 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to connect: {str(e)}")
@@ -266,28 +329,72 @@ class EmailMonitorApp:
                 for attachment in email["attachments"]:
                     original_filename = attachment["filename"]
                     file_path = os.path.join(ATTACHMENTS_DIR, original_filename)
-                    
+
                     # Проверяем, существует ли файл, и создаём уникальное имя
                     if os.path.exists(file_path):
                         unique_id = str(uuid.uuid4())[:8]
                         file_name, file_extension = os.path.splitext(original_filename)
                         file_path = os.path.join(ATTACHMENTS_DIR, f"{file_name}_{unique_id}{file_extension}")
-                    
+
                     # Сохраняем файл с уникальным именем
                     with open(file_path, "wb") as f:
                         f.write(attachment["content"])
 
-                    document_text = self.extract_text_from_attachment(file_path, lang='rus')
-                    # Добавляем данные вложения в базу данных
-                    attachment_data = {
-                        "filename": os.path.basename(file_path),
-                        "path": file_path,
-                        "content": attachment["content"],
-                        "text": document_text,
-                        "category": NeuroDocumentSorter.sort_document(document_text)
-                    }
-                    self.db.insert_attachment(email_id, attachment_data)
+                    # Добавляем путь к файлу в saved_paths
                     saved_paths.append(file_path)
+
+                    # Если файл является архивом, обрабатываем его
+                    if file_path.endswith((".rar", ".zip")):
+                        archive_data = {
+                            "filename": os.path.basename(file_path),
+                            "path": file_path,
+                            "content": attachment["content"],
+                            "text": None,
+                            "category": None
+                        }
+                        self.db.insert_attachment(email_id, archive_data)
+
+                        # Получаем ID архива
+                        cursor = self.db.conn.cursor()
+                        cursor.execute("SELECT id FROM attachments WHERE path = %s", (file_path,))
+                        archive_id = cursor.fetchone()[0]
+                        cursor.close()
+
+                        # Извлекаем файлы из архива
+                        extracted_files = extract_files_from_archive(file_path, ATTACHMENTS_DIR)
+                        for extracted_file in extracted_files:
+                            # Читаем бинарное содержимое файла
+                            with open(extracted_file, "rb") as f:
+                                file_content = f.read()
+
+                            # Извлекаем текст из файла
+                            document_text = self.extract_text_from_attachment(extracted_file, lang='rus+eng')
+
+                            # Добавляем данные извлечённых файлов в таблицу attachments
+                            attachment_data = {
+                                "filename": os.path.basename(extracted_file),
+                                "path": extracted_file,
+                                "content": file_content,
+                                "text": document_text,
+                                "category": NeuroDocumentSorter.sort_document(document_text),
+                                "owner": archive_id
+                            }
+                            self.db.insert_attachment(email_id, attachment_data)
+
+                            # Добавляем путь извлечённого файла в saved_paths
+                            saved_paths.append(extracted_file)
+                    else:
+                        # Обработка обычных вложений
+                        document_text = self.extract_text_from_attachment(file_path, lang='rus+eng')
+
+                        attachment_data = {
+                            "filename": os.path.basename(file_path),
+                            "path": file_path,
+                            "content": attachment["content"],
+                            "text": document_text,
+                            "category": NeuroDocumentSorter.sort_document(document_text)
+                        }
+                        self.db.insert_attachment(email_id, attachment_data)
                 
                 # Обновляем поле attachments в таблице emails
                 self.db.update_email_attachments(email_id, saved_paths)
@@ -354,28 +461,18 @@ class EmailMonitorApp:
 
     def update_email_attachments(self, email_id: int, attachments: List[str]):
         cursor = self.conn.cursor()
+        # Преобразуем список в строку, разделённую запятыми
+        attachments_str = ", ".join(attachments) if attachments else None
         cursor.execute("""
             UPDATE emails
             SET attachments = %s
             WHERE id = %s
-        """, (attachments, email_id))
+        """, (attachments_str, email_id))
         self.conn.commit()
         cursor.close()
 
     def create_table(self):
         cursor = self.conn.cursor()
-        # Создаём таблицу emails
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS emails (
-                id SERIAL PRIMARY KEY,
-                uid TEXT UNIQUE,  -- UID сообщения
-                sender TEXT,
-                recipient TEXT,
-                subject TEXT,
-                date TEXT,
-                body TEXT
-            )
-        """)
         # Создаём таблицу attachments
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS attachments (
@@ -385,7 +482,8 @@ class EmailMonitorApp:
                 path TEXT,
                 content BYTEA,
                 text TEXT,
-                mark TEXT
+                category INTEGER,
+                owner INTEGER  
             )
         """)
         self.conn.commit()
@@ -397,6 +495,23 @@ class EmailMonitorApp:
             ALTER TABLE emails
             DROP COLUMN IF EXISTS attachments
         """)
+        self.conn.commit()
+        cursor.close()
+
+    def insert_attachment(self, email_id: int, attachment_data: Dict):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO attachments (email_id, filename, path, content, text, category, owner)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (
+            email_id,
+            attachment_data["filename"],
+            attachment_data["path"],
+            attachment_data["content"],
+            attachment_data["text"],
+            attachment_data["category"],
+            attachment_data.get("owner")  # Указываем владельца (ID архива)
+        ))
         self.conn.commit()
         cursor.close()
 
