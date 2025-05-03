@@ -510,7 +510,7 @@ class EmailMonitorApp:
             attachment_data["content"],
             attachment_data["text"],
             attachment_data["category"],
-            attachment_data.get("owner")  # Указываем владельца (ID архива)
+            attachment_data.get("owner")
         ))
         self.conn.commit()
         cursor.close()
