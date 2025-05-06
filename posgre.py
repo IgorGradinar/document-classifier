@@ -4,15 +4,14 @@ from typing import List, Dict
 
 
 class EmailDatabaseManager:
-    def __init__(self, db_name: str = "emails", user: str = "postgres", password: str = "postgres",
-                 host: str = "localhost", port: int = 5432):
+    def __init__(self, db_name: str = "Email", user: str = "postgres", password: str = "postgres", host: str = "localhost", port: int = 5432):
 
         self.conn = psycopg2.connect(
-            dbname=db_name,
-            user=user,
-            password=password,
-            host=host,
-            port=port
+            dbname="Email",
+            user="postgres",
+            password="postgres",
+            host="localhost",
+            port=5432
         )
         self.create_table()
 
@@ -96,8 +95,8 @@ class EmailDatabaseManager:
         emails = cursor.fetchall()
         cursor.close()
         for email in emails:
-            email["from"] = email.pop("sender")  # Переименовываем ключ 'sender' в 'from'
-            email["to"] = email.pop("recipient")  # Переименовываем ключ 'recipient' в 'to'
+            email["from"] = email.pop("sender") 
+            email["to"] = email.pop("recipient")
             email["attachments"] = email["attachments"].split(", ") if email["attachments"] else []
         return emails
 
