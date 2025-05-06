@@ -194,9 +194,14 @@ class EmailMonitorApp:
                         # Получаем ID архива
                         cursor = self.db.conn.cursor()
                         cursor.execute("SELECT id FROM attachments WHERE path = %s", (file_path,))
-                        archive_id = cursor.fetchone()[0]
-                        print(archive_id)
+                        result = cursor.fetchone()
                         cursor.close()
+
+                        if result:
+                            archive_id = result[0]
+                        else:
+                            print(f"Не удалось найти архив с path: {file_path}")
+                            archive_id = None
 
                         # Извлекаем файлы из архива
                         extracted_files = extract_files_from_archive(file_path, ATTACHMENTS_DIR)
@@ -357,8 +362,14 @@ class EmailMonitorApp:
                         # Получаем ID архива
                         cursor = self.db.conn.cursor()
                         cursor.execute("SELECT id FROM attachments WHERE path = %s", (file_path,))
-                        archive_id = cursor.fetchone()[0]
+                        result = cursor.fetchone()
                         cursor.close()
+
+                        if result:
+                            archive_id = result[0]
+                        else:
+                            print(f"Не удалось найти архив с path: {file_path}")
+                            archive_id = None
 
                         # Извлекаем файлы из архива
                         extracted_files = extract_files_from_archive(file_path, ATTACHMENTS_DIR)
