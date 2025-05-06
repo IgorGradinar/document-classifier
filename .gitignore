@@ -6,3 +6,7 @@ detailed_explanation.txt
 .idea/vcs.xml
 /attachments
 /__pycache__
+/extracted_images
+example.docx
+example.pdf
+example.png

@@ -78,3 +78,4 @@ def sort_document(document_text):
     print(f"Номер категории введеного текста: '{result}'")
 
     return result
+
