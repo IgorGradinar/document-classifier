@@ -220,7 +220,6 @@ class EmailMonitorApp:
                                 "content": file_content,
                                 "text": document_text,
                                 "category": NeuroDocumentSorter.sort_document(document_text),
-                                "owner": archive_id
                             }
                             self.db.insert_attachment(email_id, attachment_data)
 
@@ -388,7 +387,6 @@ class EmailMonitorApp:
                                 "content": file_content,
                                 "text": document_text,
                                 "category": NeuroDocumentSorter.sort_document(document_text),
-                                "owner": archive_id
                             }
                             self.db.insert_attachment(email_id, attachment_data)
 
@@ -421,39 +419,33 @@ class EmailMonitorApp:
 
     def extract_text_from_attachment(self, file_path: str, lang: str = 'rus') -> str:
         try:
+            print(f"Обработка файла: {file_path}")
             text = ""
             if file_path.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".tiff")):
-                # Предварительная обработка изображения
+                print("Обработка изображения")
                 processed_path = preprocess_image(file_path)
                 image = Image.open(processed_path)
                 text = pytesseract.image_to_string(image, lang=lang)
             
             elif file_path.endswith(".pdf"):
-                # Извлечение текста из PDF
-                # Конвертируем PDF в изображения
-                images = convert_from_path(file_path, poppler_path=r"C:\poppler\poppler-24.08.0\Library\bin")
-
-                # Обрабатываем каждую страницу через OCR
-                ocr_text = "\n".join([pytesseract.image_to_string(img, lang=lang) for img in images])
-
+                print("Обработка PDF")
+                try:
+                    images = convert_from_path(file_path, poppler_path=r"C:\poppler\poppler-24.08.0\Library\bin")
+                    print(f"Извлечено {len(images)} страниц из PDF")
+                    text = "\n".join([pytesseract.image_to_string(img, lang=lang) for img in images])
+                except Exception as e:
+                    print(f"Ошибка при обработке PDF: {e}")
+                    text = ""
 
             elif file_path.endswith(".docx"):
-                # Извлечение текста из .docx
+                print("Обработка DOCX")
                 with open(file_path, "rb") as docx_file:
                     result = mammoth.extract_raw_text(docx_file)
                     text = result.value.strip()
 
-                    doc = Document(file_path)
-                    for rel in doc.part.rels.values():
-                        if "image" in rel.target_ref:
-                            image_path = rel.target_part.blob
-                            image = Image.open(io.BytesIO(image_path))
-                            text += " " + pytesseract.image_to_string(image, lang=lang)
-            
-            # Постобработка текста
             return text.strip()
         except Exception as e:
-            print(f"Ошибка при извлечении текста из вложения {file_path}: {e}")
+            print(f"Ошибка при извлечении текста из файла {file_path}: {e}")
             return ""
     
     def get_all_emails(self) -> List[Dict]:
@@ -493,8 +485,7 @@ class EmailMonitorApp:
                 path TEXT,
                 content BYTEA,
                 text TEXT,
-                category INTEGER,
-                owner INTEGER  
+                category INTEGER
             )
         """)
         self.conn.commit()
@@ -512,8 +503,8 @@ class EmailMonitorApp:
     def insert_attachment(self, email_id: int, attachment_data: Dict):
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT INTO attachments (email_id, filename, path, content, text, category, owner)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO attachments (email_id, filename, path, content, text, category)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """, (
             email_id,
             attachment_data["filename"],
@@ -521,7 +512,6 @@ class EmailMonitorApp:
             attachment_data["content"],
             attachment_data["text"],
             attachment_data["category"],
-            attachment_data.get("owner")
         ))
         self.conn.commit()
         cursor.close()
