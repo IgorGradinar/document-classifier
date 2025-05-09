@@ -7,7 +7,7 @@ Need Ollama
 
 def install_gemma2_27b_by_ollama():
 
-    command = ["ollama", "pull", "gemma2:27b"]
+    command = ["ollama", "pull", "gemma2:9b"]
 
     try:
         result = subprocess.run(command, check=True, text=True, capture_output=True, encoding="utf-8")
@@ -17,7 +17,7 @@ def install_gemma2_27b_by_ollama():
 
 def run_gemma2_27b_by_ollama():
     # Команда для запуска модели Ollama
-    command = ["ollama", "run", "gemma2:27b"]
+    command = ["ollama", "run", "gemma2:9b"]
 
     # Сообщение, которое будет передано модели
     input_message = "/bye\n"
@@ -30,7 +30,7 @@ def run_gemma2_27b_by_ollama():
         print("Error:", e.stderr)  # Вывод ошибки
 
 def sort_document(document_text):
-    llm = OllamaLLM(model="gemma2:27b")
+    llm = OllamaLLM(model="gemma2:9b")
 
     categories = '''
             1.	Приказы, распоряжения ректора, проректоров.
