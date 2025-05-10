@@ -19,13 +19,34 @@ import NeuroDocumentSorter
 import rarfile
 import zipfile
 import subprocess
+import shutil
 
 rarfile.UNRAR_TOOL = r"C:\Users\zbujh\OneDrive\Рабочий стол\UnRAR.exe"
 
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 ATTACHMENTS_DIR = "attachments"
+CATEGORY_DIR = "categorized_attachments"
+
 if not os.path.exists(ATTACHMENTS_DIR):
     os.makedirs(ATTACHMENTS_DIR)
+
+if not os.path.exists(CATEGORY_DIR):
+    os.makedirs(CATEGORY_DIR)
+
+def move_file_to_category(file_path, category):
+    """Перемещает файл в папку категории."""
+    if not category:
+        return file_path  # Не перемещаем, если категория не определена
+    category_folder = os.path.join(CATEGORY_DIR, str(category))
+    if not os.path.exists(category_folder):
+        os.makedirs(category_folder)
+    new_path = os.path.join(category_folder, os.path.basename(file_path))
+    try:
+        shutil.move(file_path, new_path)
+        return new_path
+    except Exception as e:
+        print(f"Ошибка при перемещении файла: {e}")
+        return file_path
 
 def detect_language(text):
     try:
@@ -91,6 +112,15 @@ class EmailMonitorApp:
         self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
         self.search_entry.grid(row=0, column=1, padx=5)
         self.search_entry.bind('<KeyRelease>', self.search_emails)
+
+        # --- Добавляем выпадающий список для категорий ---
+        ttk.Label(search_frame, text="Категория:").grid(row=0, column=2, padx=(10, 0))
+        self.category_var = tk.StringVar()
+        self.category_combobox = ttk.Combobox(search_frame, textvariable=self.category_var, state="readonly")
+        self.category_combobox.grid(row=0, column=3, padx=5)
+        self.category_combobox.bind('<<ComboboxSelected>>', self.search_emails)
+        self.category_combobox.bind('<Button-1>', lambda e: self.update_category_combobox())
+        self.update_category_combobox()
         
         # Connection frame
         connection_frame = ttk.Frame(self.root, padding="10")
@@ -158,6 +188,19 @@ class EmailMonitorApp:
         self.root.grid_rowconfigure(3, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
     
+    def update_category_combobox(self):
+        # Собираем уникальные категории из всех вложений
+        categories = set()
+        for email in self.emails:
+            for att in email.get('attachments', []):
+                if isinstance(att, dict):
+                    cat = att.get('category')
+                    if cat is not None:
+                        categories.add(str(cat))
+        categories = sorted(categories)
+        self.category_combobox['values'] = ["Все"] + categories
+        self.category_combobox.set("Все")
+
     def connect_to_email(self):
         self.connect_button.config(state=tk.DISABLED)
         self.root.config(cursor="watch")
@@ -232,13 +275,16 @@ class EmailMonitorApp:
                                     if extracted_file.lower().endswith(('.txt', '.docx', '.pdf')):
                                         document_text = self.extract_text_from_attachment(extracted_file, lang='rus+eng')
 
+                                    category = NeuroDocumentSorter.sort_document(document_text) if document_text else None
+                                    extracted_file = move_file_to_category(extracted_file, category)
+
                                     # Добавляем данные извлечённых файлов в пакет
                                     attachment_data = {
                                         "filename": os.path.basename(extracted_file),
                                         "path": extracted_file,
                                         "content": file_content,
                                         "text": document_text,
-                                        "category": NeuroDocumentSorter.sort_document(document_text) if document_text else None,
+                                        "category": category,
                                     }
                                     attachment_batch.append((email_id, attachment_data))
                                     saved_paths.append(extracted_file)
@@ -251,12 +297,15 @@ class EmailMonitorApp:
                             if file_path.lower().endswith(('.txt', '.docx', '.pdf')):
                                 document_text = self.extract_text_from_attachment(file_path, lang='rus+eng')
 
+                            category = NeuroDocumentSorter.sort_document(document_text) if document_text else None
+                            file_path = move_file_to_category(file_path, category)
+
                             attachment_data = {
                                 "filename": os.path.basename(file_path),
                                 "path": file_path,
                                 "content": attachment["content"],
                                 "text": document_text,
-                                "category": NeuroDocumentSorter.sort_document(document_text) if document_text else None
+                                "category": category
                             }
                             attachment_batch.append((email_id, attachment_data))
                     except Exception as e:
@@ -296,12 +345,12 @@ class EmailMonitorApp:
         selected_item = self.tree.focus()
         if not selected_item:
             return
-            
+        
         item_data = self.tree.item(selected_item)
         values = item_data["values"]
         if not values or len(values) < 3:
             return
-            
+        
         selected_email = next(
             (email for email in self.emails 
             if email.get("from", "") == values[0]
@@ -324,13 +373,7 @@ class EmailMonitorApp:
             if selected_email.get('attachments'):
                 self.text_view.insert(tk.END, "\nВложения:\n")
                 
-                # Настраиваем стили для ссылок
-                self.text_view.tag_configure("link", foreground="blue", underline=1)
-                self.text_view.tag_configure("link_hover", foreground="purple", underline=1)
-                self.text_view.tag_configure("folder_link", foreground="green", underline=1)
-                self.text_view.tag_configure("folder_link_hover", foreground="dark green", underline=1)
-                
-                for attachment in selected_email['attachments']:
+                for idx, attachment in enumerate(selected_email['attachments']):
                     if isinstance(attachment, str):
                         filename = os.path.basename(attachment)
                         path = attachment
@@ -339,35 +382,29 @@ class EmailMonitorApp:
                         path = attachment.get('path', '')
                     
                     if filename and path:
-                        # Добавляем имя файла как ссылку
                         self.text_view.insert(tk.END, "- ")
                         file_start = self.text_view.index("end-1c")
                         self.text_view.insert(tk.END, filename)
                         file_end = self.text_view.index("end-1c")
                         
-                        # Добавляем тег для открытия файла
-                        self.text_view.tag_add("link", file_start, file_end)
-                        self.text_view.tag_bind("link", "<Button-1>", 
-                            lambda e, p=path: self.open_attachment(p))
-                        self.text_view.tag_bind("link", "<Enter>", 
-                            lambda e: self.text_view.tag_configure("link", foreground="purple"))
-                        self.text_view.tag_bind("link", "<Leave>", 
-                            lambda e: self.text_view.tag_configure("link", foreground="blue"))
+                        # Уникальный тег для каждой ссылки
+                        link_tag = f"link_{idx}"
+                        self.text_view.tag_add(link_tag, file_start, file_end)
+                        self.text_view.tag_configure(link_tag, foreground="blue", underline=1)
+                        self.text_view.tag_bind(link_tag, "<Button-1>", lambda e, p=path: self.open_attachment(p))
+                        self.text_view.tag_bind(link_tag, "<Enter>", lambda e, t=link_tag: self.text_view.tag_configure(t, foreground="purple"))
+                        self.text_view.tag_bind(link_tag, "<Leave>", lambda e, t=link_tag: self.text_view.tag_configure(t, foreground="blue"))
                         
-                        # Добавляем ссылку для открытия папки
-                        self.text_view.insert(tk.END)
+                        # Ссылка на папку
+                        self.text_view.insert(tk.END, "\n")
                         folder_start = self.text_view.index("end-1c linestart")
                         folder_end = self.text_view.index("end-1c")
-                        
-                        # Добавляем тег для открытия папки
-                        self.text_view.tag_add("folder_link", folder_start, folder_end)
-                        self.text_view.tag_bind("folder_link", "<Button-1>", 
-                            lambda e, p=path: self.open_attachment_folder(p))
-                        self.text_view.tag_bind("folder_link", "<Enter>", 
-                            lambda e: self.text_view.tag_configure("folder_link", foreground="dark green"))
-                        self.text_view.tag_bind("folder_link", "<Leave>", 
-                            lambda e: self.text_view.tag_configure("folder_link", foreground="green"))
-                        
+                        folder_tag = f"folder_link_{idx}"
+                        self.text_view.tag_add(folder_tag, folder_start, folder_end)
+                        self.text_view.tag_configure(folder_tag, foreground="green", underline=1)
+                        self.text_view.tag_bind(folder_tag, "<Button-1>", lambda e, p=path: self.open_attachment_folder(p))
+                        self.text_view.tag_bind(folder_tag, "<Enter>", lambda e, t=folder_tag: self.text_view.tag_configure(t, foreground="dark green"))
+                        self.text_view.tag_bind(folder_tag, "<Leave>", lambda e, t=folder_tag: self.text_view.tag_configure(t, foreground="green"))
                         self.text_view.insert(tk.END, "\n")
             
             # Добавляем разделитель и тело письма
@@ -499,13 +536,16 @@ class EmailMonitorApp:
                                         document_text = self.extract_text_from_attachment(extracted_file, lang='rus+eng')
                                         print(f"Извлеченный текст из {extracted_file}: {len(document_text)} символов")
 
+                                        category = NeuroDocumentSorter.sort_document(document_text) if document_text else None
+                                        extracted_file = move_file_to_category(extracted_file, category)
+
                                         # Добавляем данные извлечённых файлов в таблицу attachments
                                         attachment_data = {
                                             "filename": os.path.basename(extracted_file),
                                             "path": extracted_file,
                                             "content": file_content,
                                             "text": document_text,
-                                            "category": NeuroDocumentSorter.sort_document(document_text),
+                                            "category": category,
                                         }
                                         self.db.insert_attachment(email_id, attachment_data)
                                         print(f"Вложение сохранено в БД: {extracted_file}")
@@ -520,12 +560,15 @@ class EmailMonitorApp:
                                 document_text = self.extract_text_from_attachment(file_path, lang='rus+eng')
                                 print(f"Извлеченный текст из {file_path}: {len(document_text)} символов")
 
+                                category = NeuroDocumentSorter.sort_document(document_text) if document_text else None
+                                file_path = move_file_to_category(file_path, category)
+
                                 attachment_data = {
                                     "filename": os.path.basename(file_path),
                                     "path": file_path,
                                     "content": attachment["content"],
                                     "text": document_text,
-                                    "category": NeuroDocumentSorter.sort_document(document_text) if document_text else None
+                                    "category": category
                                 }
                                 self.db.insert_attachment(email_id, attachment_data)
                         except Exception as e:
@@ -686,21 +729,44 @@ class EmailMonitorApp:
 
     def search_emails(self, event=None):
         search_term = self.search_var.get().lower()
+        selected_category = self.category_var.get()
+
         self.tree.delete(*self.tree.get_children())
         
         for email_data in self.emails:
+            # Проверяем категории вложений
+            if selected_category and selected_category != "Все":
+                has_matching_category = False
+                if "attachments" in email_data:
+                    for attachment in email_data["attachments"]:
+                        if isinstance(attachment, dict):
+                            category = str(attachment.get("category")) if attachment.get("category") is not None else None
+                            if category == selected_category:
+                                has_matching_category = True
+                                break
+                if not has_matching_category:
+                    continue
+
+            # Если нет поискового запроса, просто добавляем письмо
+            if not search_term:
+                self.tree.insert("", tk.END, values=(
+                    email_data.get("from", ""),
+                    email_data.get("subject", ""),
+                    email_data.get("date", "")
+                ))
+                continue
+
+            # Поиск в основных полях письма
             found = False
             highlight_info = {
                 "body_highlights": [],
                 "attachment_highlights": []
             }
-            
-            # Поиск в основных полях письма
+
             if (search_term in email_data.get("from", "").lower() or
                 search_term in email_data.get("subject", "").lower() or
                 search_term in email_data.get("body", "").lower()):
                 found = True
-                # Сохраняем позиции найденных слов в теле письма
                 body = email_data.get("body", "").lower()
                 start = 0
                 while True:
@@ -709,49 +775,57 @@ class EmailMonitorApp:
                         break
                     highlight_info["body_highlights"].append(start)
                     start += len(search_term)
-            
+
             # Поиск в вложениях
             if "attachments" in email_data:
                 for attachment in email_data["attachments"]:
-                    # Проверяем имя файла
                     if isinstance(attachment, str):
                         filename = os.path.basename(attachment)
+                        path = attachment
+                        text = ""
                     else:
                         filename = attachment.get("filename", "")
-                    
+                        path = attachment.get("path", "")
+                        text = attachment.get("text", "") or ""
+
+                    # Поиск по имени файла
                     if search_term in filename.lower():
                         found = True
                         highlight_info["attachment_highlights"].append({
                             "filename": filename,
-                            "path": attachment if isinstance(attachment, str) else attachment.get("path", "")
+                            "path": path,
+                            "text_highlights": []
                         })
-                        break
-                    
-                    # Проверяем содержимое файла
-                    if isinstance(attachment, dict) and attachment.get("text"):
-                        text = attachment.get("text", "").lower()
-                        if search_term in text:
+                        continue
+
+                    # Поиск по тексту вложения
+                    if text:
+                        text_lower = text.lower()
+                        start = 0
+                        text_highlights = []
+                        while True:
+                            start = text_lower.find(search_term, start)
+                            if start == -1:
+                                break
+                            text_highlights.append(start)
+                            start += len(search_term)
+                        if text_highlights:
                             found = True
-                            highlight_info["attachment_highlights"][-1]["text_highlights"].append(start)
-                            # Сохраняем позиции найденных слов в тексте вложения
-                            start = 0
-                            while True:
-                                start = text.find(search_term, start)
-                                if start == -1:
-                                    break
-                                highlight_info["attachment_highlights"][-1]["text_highlights"].append(start)
-                                start += len(search_term)
-            
+                            highlight_info["attachment_highlights"].append({
+                                "filename": filename,
+                                "path": path,
+                                "text_highlights": text_highlights
+                            })
+
+            # Добавляем письмо в список если найдены совпадения
             if found:
                 item = self.tree.insert("", tk.END, values=(
                     email_data.get("from", ""),
                     email_data.get("subject", ""),
                     email_data.get("date", "")
                 ))
-                # Сохраняем информацию о подсветке в элементе дерева
                 self.tree.item(item, tags=(str(highlight_info),))
-        
-        # Добавляем обработчик выбора элемента
+
         self.tree.bind('<<TreeviewSelect>>', self.on_search_select)
 
     def on_search_select(self, event):
@@ -800,13 +874,7 @@ class EmailMonitorApp:
             if selected_email.get('attachments'):
                 self.text_view.insert(tk.END, "\nВложения:\n")
                 
-                # Настраиваем стили для ссылок
-                self.text_view.tag_configure("link", foreground="blue", underline=1)
-                self.text_view.tag_configure("link_hover", foreground="purple", underline=1)
-                self.text_view.tag_configure("folder_link", foreground="green", underline=1)
-                self.text_view.tag_configure("folder_link_hover", foreground="dark green", underline=1)
-                
-                for attachment in selected_email['attachments']:
+                for idx, attachment in enumerate(selected_email['attachments']):
                     if isinstance(attachment, str):
                         filename = os.path.basename(attachment)
                         path = attachment
@@ -815,45 +883,35 @@ class EmailMonitorApp:
                         path = attachment.get('path', '')
                     
                     if filename and path:
-                        # Проверяем, нужно ли подсвечивать это вложение
                         should_highlight = any(
                             h.get('filename') == filename 
                             for h in highlight_info.get('attachment_highlights', [])
                         )
-                        
-                        # Добавляем имя файла как ссылку
                         self.text_view.insert(tk.END, "- ")
                         file_start = self.text_view.index("end-1c")
                         self.text_view.insert(tk.END, filename)
                         file_end = self.text_view.index("end-1c")
                         
-                        # Подсвечиваем, если нужно
+                        # Уникальный тег для каждой ссылки
+                        link_tag = f"link_{idx}"
                         if should_highlight:
                             self.text_view.tag_add("highlight", file_start, file_end)
+                        self.text_view.tag_add(link_tag, file_start, file_end)
+                        self.text_view.tag_configure(link_tag, foreground="blue", underline=1)
+                        self.text_view.tag_bind(link_tag, "<Button-1>", lambda e, p=path: self.open_attachment(p))
+                        self.text_view.tag_bind(link_tag, "<Enter>", lambda e, t=link_tag: self.text_view.tag_configure(t, foreground="purple"))
+                        self.text_view.tag_bind(link_tag, "<Leave>", lambda e, t=link_tag: self.text_view.tag_configure(t, foreground="blue"))
                         
-                        # Добавляем тег для открытия файла
-                        self.text_view.tag_add("link", file_start, file_end)
-                        self.text_view.tag_bind("link", "<Button-1>", 
-                            lambda e, p=path: self.open_attachment(p))
-                        self.text_view.tag_bind("link", "<Enter>", 
-                            lambda e: self.text_view.tag_configure("link", foreground="purple"))
-                        self.text_view.tag_bind("link", "<Leave>", 
-                            lambda e: self.text_view.tag_configure("link", foreground="blue"))
-                        
-                        # Добавляем ссылку для открытия папки
-                        self.text_view.insert(tk.END)
+                        # Ссылка на папку
+                        self.text_view.insert(tk.END, "\n")
                         folder_start = self.text_view.index("end-1c linestart")
                         folder_end = self.text_view.index("end-1c")
-                        
-                        # Добавляем тег для открытия папки
-                        self.text_view.tag_add("folder_link", folder_start, folder_end)
-                        self.text_view.tag_bind("folder_link", "<Button-1>", 
-                            lambda e, p=path: self.open_attachment_folder(p))
-                        self.text_view.tag_bind("folder_link", "<Enter>", 
-                            lambda e: self.text_view.tag_configure("folder_link", foreground="dark green"))
-                        self.text_view.tag_bind("folder_link", "<Leave>", 
-                            lambda e: self.text_view.tag_configure("folder_link", foreground="green"))
-                        
+                        folder_tag = f"folder_link_{idx}"
+                        self.text_view.tag_add(folder_tag, folder_start, folder_end)
+                        self.text_view.tag_configure(folder_tag, foreground="green", underline=1)
+                        self.text_view.tag_bind(folder_tag, "<Button-1>", lambda e, p=path: self.open_attachment_folder(p))
+                        self.text_view.tag_bind(folder_tag, "<Enter>", lambda e, t=folder_tag: self.text_view.tag_configure(t, foreground="dark green"))
+                        self.text_view.tag_bind(folder_tag, "<Leave>", lambda e, t=folder_tag: self.text_view.tag_configure(t, foreground="green"))
                         self.text_view.insert(tk.END, "\n")
             
             # Добавляем разделитель и тело письма
@@ -888,60 +946,63 @@ class EmailMonitorApp:
         selected_item = self.tree.focus()
         if not selected_item:
             return
-            
-        if messagebox.askyesno("Подтверждение", "Вы уверены, что хотите удалить это письмо?"):
-            item_data = self.tree.item(selected_item)
-            selected_email = next(
-                (email for email in self.emails 
-                if email["from"] == item_data["values"][0]
-                and email["subject"] == item_data["values"][1]
-                and email["date"] == item_data["values"][2]),
-                None
-            )
-            
-            if selected_email and "id" in selected_email:
+        
+        item_data = self.tree.item(selected_item)
+        values = item_data["values"]
+        if not values or len(values) < 3:
+            return
+        
+        selected_email = next(
+            (email for email in self.emails 
+            if email.get("from", "") == values[0]
+            and email.get("subject", "") == values[1]
+            and email.get("date", "") == values[2]),
+            None
+        )
+        
+        if selected_email and "id" in selected_email:
+            try:
+                # Удаляем вложения из файловой системы
+                if "attachments" in selected_email:
+                    for attachment in selected_email["attachments"]:
+                        try:
+                            if isinstance(attachment, str):
+                                file_path = attachment
+                            else:
+                                file_path = attachment.get("path")
+                            
+                            if file_path and os.path.exists(file_path):
+                                os.remove(file_path)
+                                print(f"Удален файл: {file_path}")
+                        except Exception as e:
+                            print(f"Ошибка при удалении файла {file_path}: {e}")
+                
+                # Удаляем письмо из базы данных
+                cursor = self.db.conn.cursor()
                 try:
-                    # Удаляем вложения из файловой системы
-                    if "attachments" in selected_email:
-                        for attachment in selected_email["attachments"]:
-                            try:
-                                if isinstance(attachment, str):
-                                    file_path = attachment
-                                else:
-                                    file_path = attachment.get("path")
-                                
-                                if file_path and os.path.exists(file_path):
-                                    os.remove(file_path)
-                                    print(f"Удален файл: {file_path}")
-                            except Exception as e:
-                                print(f"Ошибка при удалении файла {file_path}: {e}")
-                    
-                    # Удаляем письмо из базы данных
-                    cursor = self.db.conn.cursor()
-                    try:
-                        # Сначала удаляем все вложения, связанные с письмом
-                        cursor.execute("DELETE FROM attachments WHERE email_id = %s", (selected_email["id"],))
-                        # Затем удаляем само письмо
-                        cursor.execute("DELETE FROM emails WHERE id = %s", (selected_email["id"],))
-                        self.db.conn.commit()
-                        print(f"Удалено письмо из БД с ID: {selected_email['id']}")
-                    except Exception as e:
-                        self.db.conn.rollback()
-                        raise e
-                    finally:
-                        cursor.close()
-                    
-                    # Удаляем из интерфейса
-                    self.emails.remove(selected_email)
-                    self.tree.delete(selected_item)
-                    self.text_view.config(state=tk.NORMAL)
-                    self.text_view.delete(1.0, tk.END)
-                    self.text_view.config(state=tk.DISABLED)
-                    
-                    messagebox.showinfo("Успех", "Письмо успешно удалено")
+                    # Сначала удаляем все вложения, связанные с письмом
+                    cursor.execute("DELETE FROM attachments WHERE email_id = %s", (selected_email["id"],))
+                    # Затем удаляем само письмо
+                    cursor.execute("DELETE FROM emails WHERE id = %s", (selected_email["id"],))
+                    self.db.conn.commit()
+                    print(f"Удалено письмо из БД с ID: {selected_email['id']}")
                 except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось удалить письмо: {str(e)}")
-                    print(f"Ошибка при удалении письма: {e}")
+                    self.db.conn.rollback()
+                    raise e
+                finally:
+                    cursor.close()
+                
+                # Удаляем из интерфейса
+                self.emails.remove(selected_email)
+                self.tree.delete(selected_item)
+                self.text_view.config(state=tk.NORMAL)
+                self.text_view.delete(1.0, tk.END)
+                self.text_view.config(state=tk.DISABLED)
+                self.delete_button.config(state=tk.DISABLED)
+                messagebox.showinfo("Успех", "Письмо успешно удалено")
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось удалить письмо: {str(e)}")
+                print(f"Ошибка при удалении письма: {e}")
 
     def open_attachment(self, file_path):
         if os.path.exists(file_path):
